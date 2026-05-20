@@ -16,7 +16,9 @@ Environment variables (optional):
 
 import base64
 import hashlib
+import logging
 import os
+import re
 import struct
 import time
 import xml.etree.ElementTree as ET
@@ -25,6 +27,9 @@ from typing import Any
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import PlainTextResponse
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="WeCom Relay")
 
@@ -132,13 +137,19 @@ async def wecom_event(
 
     tree = ET.fromstring(msg_xml)
     event = (tree.findtext("Event") or "").lower()
-    event_key = (tree.findtext("EventKey") or "").upper()
+    card_type = (tree.findtext("CardType") or "").lower()
+    event_key_raw = (tree.findtext("EventKey") or "").strip()
+    task_id = (tree.findtext("TaskId") or "").strip()
+    user_id = (tree.findtext("FromUserName") or "").strip()
 
-    if event == "template_card_event" and event_key == "TYPE_BUTTON_INTERACTION":
-        task_id = (tree.findtext("TaskId") or "").strip()
-        user_id = (tree.findtext("FromUserName") or "").strip()
-        key_el = tree.find(".//SelectedItems/SelectedItem/Key")
-        button_key = (key_el.text or "").strip() if key_el is not None else ""
+    logger.info(
+        "WeCom event received: Event=%r EventKey=%r CardType=%r TaskId=%r FromUser=%r XML=%s",
+        event, event_key_raw, card_type, task_id, user_id, msg_xml,
+    )
+
+    if event == "template_card_event" and card_type == "button_interaction":
+        # WeCom appends a 1-based index to the button key (e.g. "Yes" -> "Yes1"); strip it.
+        button_key = re.sub(r"\d+$", "", event_key_raw)
         if task_id:
             _responses[task_id] = {
                 "task_id": task_id,
@@ -146,6 +157,11 @@ async def wecom_event(
                 "user_id": user_id,
                 "received_at": time.time(),
             }
+            logger.info("Stored response: task_id=%r response=%r user_id=%r", task_id, button_key, user_id)
+        else:
+            logger.warning("template_card_event received but TaskId is empty")
+    else:
+        logger.info("Unhandled event (not stored): Event=%r CardType=%r", event, card_type)
 
     return Response(content="success", media_type="text/plain")
 
