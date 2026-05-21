@@ -31,9 +31,12 @@ WeCom's interactive template cards (`button_interaction`) deliver user responses
   "task_id": "a1b2c3d4",
   "response": "Yes",
   "user_id": "zhangsan",
+  "code": "ResponseCode_from_WeCom",
   "received_at": 1716192000.123
 }
 ```
+
+`code` is WeCom's `ResponseCode` (valid ~5 minutes). SOARAI uses it to call `interactive/taskcard/update` and replace the card with reply text.
 
 ## Configuration
 
@@ -46,6 +49,14 @@ All configuration is via environment variables.
 | `WECOM_CORP_ID` | Yes | Enterprise Corp ID from WeCom admin console → My Enterprise |
 | `RELAY_API_SECRET` | No | Shared secret sent as `X-Relay-Secret` header by SOARAI. Strongly recommended in production to prevent unauthorized polling. |
 | `RESPONSE_TTL_SECONDS` | No | How long responses are kept in memory before automatic cleanup. Default: `86400` (24 hours). |
+| `WECOM_CORP_SECRET` | No | Corp secret (WeCom admin → App Management → [App] → Secret). Required for immediate card-disable. |
+| `WECOM_AGENT_ID` | No | App agent ID (WeCom admin → App Management → [App]). Required together with `WECOM_CORP_SECRET`. |
+
+### Immediate card-disable (optional)
+
+When `WECOM_CORP_SECRET` and `WECOM_AGENT_ID` are both set, the relay calls WeCom's `interactive/taskcard/update` API immediately after receiving a button click. This replaces the button area with the selected button's label, preventing the user from clicking again while SOARAI processes the response.
+
+Without these variables the feature is disabled and the card remains interactive until SOARAI sends its reply.
 
 ## Running with Docker Compose
 

@@ -1,8 +1,10 @@
 import os
 import time
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
+import respx
+import httpx
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("WECOM_TOKEN", "test_token")
@@ -10,6 +12,7 @@ os.environ.setdefault("WECOM_ENCODING_AES_KEY", "A" * 43)  # decodes to 32 zero-
 os.environ.setdefault("WECOM_CORP_ID", "test_corp")
 
 from app import _responses, app  # noqa: E402
+import app as app_module
 
 client = TestClient(app)
 
@@ -145,3 +148,63 @@ def test_missing_secret_returns_401():
     _responses["t"] = {"task_id": "t", "response": "Yes", "user_id": "u", "received_at": time.time()}
     with patch("app.RELAY_API_SECRET", "mysecret"):
         assert client.get("/relay/response/t").status_code == 401
+
+
+# ── _disable_card ─────────────────────────────────────────────────────────────
+
+def test_callback_calls_disable_card_when_credentials_configured():
+    with (
+        patch("app.WECOM_CORP_SECRET", "secret"),
+        patch("app.WECOM_AGENT_ID", 42),
+        patch("app._disable_card", new_callable=AsyncMock) as mock_disable,
+    ):
+        _post_callback(_event_xml("template_card_event", "button_interaction", "Yes1", "t", response_code="rc1"))
+        mock_disable.assert_awaited_once_with("rc1", "Yes")
+
+
+
+@respx.mock
+@pytest.mark.anyio
+async def test_disable_card_calls_wecom_apis():
+    respx.get("https://qyapi.weixin.qq.com/cgi-bin/gettoken").mock(
+        return_value=httpx.Response(200, json={"errcode": 0, "access_token": "tok", "expires_in": 7200})
+    )
+    respx.post("https://qyapi.weixin.qq.com/cgi-bin/message/interactive/taskcard/update").mock(
+        return_value=httpx.Response(200, json={"errcode": 0, "errmsg": "ok"})
+    )
+    app_module._token_cache = None
+    with patch("app.WECOM_CORP_SECRET", "secret"), patch("app.WECOM_AGENT_ID", 42):
+        from app import _disable_card
+        await _disable_card("rc1", "Yes")
+
+    assert respx.calls.call_count == 2
+
+
+@respx.mock
+@pytest.mark.anyio
+async def test_disable_card_uses_token_cache():
+    app_module._token_cache = ("cached_tok", time.time() + 3600)
+    respx.post("https://qyapi.weixin.qq.com/cgi-bin/message/interactive/taskcard/update").mock(
+        return_value=httpx.Response(200, json={"errcode": 0, "errmsg": "ok"})
+    )
+    with patch("app.WECOM_CORP_SECRET", "secret"), patch("app.WECOM_AGENT_ID", 42):
+        from app import _disable_card
+        await _disable_card("rc2", "No")
+
+    # gettoken should NOT have been called
+    assert respx.calls.call_count == 1
+    app_module._token_cache = None
+
+
+@pytest.mark.anyio
+async def test_disable_card_noop_without_credentials():
+    with patch("app.WECOM_CORP_SECRET", ""), patch("app.WECOM_AGENT_ID", 0):
+        from app import _disable_card
+        await _disable_card("rc1", "Yes")  # must not raise or make HTTP calls
+
+
+@pytest.mark.anyio
+async def test_disable_card_noop_without_response_code():
+    with patch("app.WECOM_CORP_SECRET", "secret"), patch("app.WECOM_AGENT_ID", 42):
+        from app import _disable_card
+        await _disable_card("", "Yes")  # empty response_code → noop

@@ -12,6 +12,8 @@ Environment variables (required):
 Environment variables (optional):
   RELAY_API_SECRET        — shared secret for the /relay/* endpoints (recommended)
   RESPONSE_TTL_SECONDS    — how long to keep responses in memory (default: 86400)
+  WECOM_CORP_SECRET       — corp secret; enables immediate card-disable on button click
+  WECOM_AGENT_ID          — app agent ID; required together with WECOM_CORP_SECRET
 """
 
 import base64
@@ -23,6 +25,8 @@ import struct
 import time
 import xml.etree.ElementTree as ET
 from typing import Any
+
+import httpx
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
@@ -38,9 +42,12 @@ ENCODING_AES_KEY = os.environ["WECOM_ENCODING_AES_KEY"]
 CORP_ID = os.environ["WECOM_CORP_ID"]
 RELAY_API_SECRET = os.environ.get("RELAY_API_SECRET", "")
 TTL_SECONDS = int(os.environ.get("RESPONSE_TTL_SECONDS", 86400))
+WECOM_CORP_SECRET = os.environ.get("WECOM_CORP_SECRET", "")
+WECOM_AGENT_ID = int(os.environ.get("WECOM_AGENT_ID", "0") or "0")
 
-# task_id -> {"task_id", "response", "user_id", "received_at"}
+# task_id -> {"task_id", "response", "user_id", "code", "received_at"}
 _responses: dict[str, dict[str, Any]] = {}
+_token_cache: tuple[str, float] | None = None  # (access_token, expires_at)
 
 
 def _cleanup() -> None:
@@ -48,6 +55,45 @@ def _cleanup() -> None:
     expired = [k for k, v in _responses.items() if now - v["received_at"] > TTL_SECONDS]
     for k in expired:
         del _responses[k]
+
+
+async def _get_access_token() -> str:
+    global _token_cache
+    now = time.time()
+    if _token_cache and now < _token_cache[1] - 60:
+        return _token_cache[0]
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            "https://qyapi.weixin.qq.com/cgi-bin/gettoken",
+            params={"corpid": CORP_ID, "corpsecret": WECOM_CORP_SECRET},
+        )
+        data = r.json()
+    if data.get("errcode", 0) != 0:
+        raise RuntimeError(f"WeCom gettoken error: {data}")
+    token = data["access_token"]
+    _token_cache = (token, now + data.get("expires_in", 7200))
+    return token
+
+
+async def _disable_card(response_code: str, replace_name: str) -> None:
+    """Call WeCom taskcard/update to replace the button area immediately after a click."""
+    if not WECOM_CORP_SECRET or not WECOM_AGENT_ID or not response_code:
+        return
+    try:
+        token = await _get_access_token()
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                "https://qyapi.weixin.qq.com/cgi-bin/message/interactive/taskcard/update",
+                params={"access_token": token},
+                json={"agentid": WECOM_AGENT_ID, "response_code": response_code, "replace_name": replace_name},
+            )
+            data = r.json()
+        if data.get("errcode", 0) != 0:
+            logger.warning("WeCom taskcard/update failed: %s", data)
+        else:
+            logger.info("Card disabled: response_code=%r replace_name=%r", response_code, replace_name)
+    except Exception as e:
+        logger.warning("WeCom taskcard/update error: %s", e)
 
 
 def _require_secret(x_relay_secret: str) -> None:
@@ -160,6 +206,7 @@ async def wecom_event(
                 "received_at": time.time(),
             }
             logger.info("Stored response: task_id=%r response=%r user_id=%r", task_id, button_key, user_id)
+            await _disable_card(response_code, button_key)
         else:
             logger.warning("template_card_event received but TaskId is empty")
     else:
