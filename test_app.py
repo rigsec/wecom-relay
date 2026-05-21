@@ -169,7 +169,7 @@ async def test_disable_card_calls_wecom_apis():
     respx.get("https://qyapi.weixin.qq.com/cgi-bin/gettoken").mock(
         return_value=httpx.Response(200, json={"errcode": 0, "access_token": "tok", "expires_in": 7200})
     )
-    respx.post("https://qyapi.weixin.qq.com/cgi-bin/message/interactive/taskcard/update").mock(
+    respx.post("https://qyapi.weixin.qq.com/cgi-bin/message/update_template_card").mock(
         return_value=httpx.Response(200, json={"errcode": 0, "errmsg": "ok"})
     )
     app_module._token_cache = None
@@ -184,7 +184,7 @@ async def test_disable_card_calls_wecom_apis():
 @pytest.mark.anyio
 async def test_disable_card_uses_token_cache():
     app_module._token_cache = ("cached_tok", time.time() + 3600)
-    respx.post("https://qyapi.weixin.qq.com/cgi-bin/message/interactive/taskcard/update").mock(
+    respx.post("https://qyapi.weixin.qq.com/cgi-bin/message/update_template_card").mock(
         return_value=httpx.Response(200, json={"errcode": 0, "errmsg": "ok"})
     )
     with patch("app.WECOM_CORP_SECRET", "secret"), patch("app.WECOM_AGENT_ID", 42):

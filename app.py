@@ -83,13 +83,14 @@ async def _disable_card(response_code: str, replace_name: str) -> None:
         token = await _get_access_token()
         async with httpx.AsyncClient() as client:
             r = await client.post(
-                "https://qyapi.weixin.qq.com/cgi-bin/message/interactive/taskcard/update",
+                "https://qyapi.weixin.qq.com/cgi-bin/message/update_template_card",
                 params={"access_token": token},
                 json={"agentid": WECOM_AGENT_ID, "response_code": response_code, "replace_name": replace_name},
             )
-            data = r.json()
+        r.raise_for_status()
+        data = r.json()
         if data.get("errcode", 0) != 0:
-            logger.warning("WeCom taskcard/update failed: %s", data)
+            logger.warning("WeCom update_template_card failed: %s", data)
         else:
             logger.info("Card disabled: response_code=%r replace_name=%r", response_code, replace_name)
     except Exception as e:
