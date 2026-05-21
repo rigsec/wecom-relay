@@ -85,7 +85,14 @@ async def _disable_card(response_code: str, replace_name: str) -> None:
             r = await client.post(
                 "https://qyapi.weixin.qq.com/cgi-bin/message/update_template_card",
                 params={"access_token": token},
-                json={"agentid": WECOM_AGENT_ID, "response_code": response_code, "replace_name": replace_name},
+                json={
+                    "agentid": WECOM_AGENT_ID,
+                    "response_code": response_code,
+                    "template_card": {
+                        "card_type": "button_interaction",
+                        "replace_name": replace_name,
+                    },
+                },
             )
         r.raise_for_status()
         data = r.json()
