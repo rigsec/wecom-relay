@@ -16,7 +16,7 @@ client = TestClient(app)
 CALLBACK_QS = "?msg_signature=sig&timestamp=1&nonce=abc"
 
 
-def _event_xml(event, card_type, event_key, task_id, user_id="user1"):
+def _event_xml(event, card_type, event_key, task_id, user_id="user1", response_code=""):
     return (
         f"<xml>"
         f"<Event><![CDATA[{event}]]></Event>"
@@ -24,6 +24,7 @@ def _event_xml(event, card_type, event_key, task_id, user_id="user1"):
         f"<CardType><![CDATA[{card_type}]]></CardType>"
         f"<TaskId><![CDATA[{task_id}]]></TaskId>"
         f"<FromUserName><![CDATA[{user_id}]]></FromUserName>"
+        f"<ResponseCode><![CDATA[{response_code}]]></ResponseCode>"
         f"<SelectedItems></SelectedItems>"
         f"</xml>"
     )
@@ -57,11 +58,17 @@ def test_health_pending_count():
 # ── POST /wechat/callback ─────────────────────────────────────────────────────
 
 def test_callback_stores_button_interaction():
-    r = _post_callback(_event_xml("template_card_event", "button_interaction", "Yes1", "task1"))
+    r = _post_callback(_event_xml("template_card_event", "button_interaction", "Yes1", "task1", response_code="abc123"))
     assert r.status_code == 200
     assert "task1" in _responses
     assert _responses["task1"]["response"] == "Yes"
     assert _responses["task1"]["user_id"] == "user1"
+    assert _responses["task1"]["code"] == "abc123"
+
+
+def test_callback_stores_empty_response_code_when_absent():
+    _post_callback(_event_xml("template_card_event", "button_interaction", "Yes1", "task1"))
+    assert _responses["task1"]["code"] == ""
 
 
 def test_callback_strips_multi_digit_suffix():

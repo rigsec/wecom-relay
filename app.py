@@ -141,10 +141,11 @@ async def wecom_event(
     event_key_raw = (tree.findtext("EventKey") or "").strip()
     task_id = (tree.findtext("TaskId") or "").strip()
     user_id = (tree.findtext("FromUserName") or "").strip()
+    response_code = (tree.findtext("ResponseCode") or "").strip()
 
     logger.info(
-        "WeCom event received: Event=%r EventKey=%r CardType=%r TaskId=%r FromUser=%r XML=%s",
-        event, event_key_raw, card_type, task_id, user_id, msg_xml,
+        "WeCom event received: Event=%r EventKey=%r CardType=%r TaskId=%r FromUser=%r ResponseCode=%r XML=%s",
+        event, event_key_raw, card_type, task_id, user_id, response_code, msg_xml,
     )
 
     if event == "template_card_event" and card_type == "button_interaction":
@@ -155,6 +156,7 @@ async def wecom_event(
                 "task_id": task_id,
                 "response": button_key,
                 "user_id": user_id,
+                "code": response_code,
                 "received_at": time.time(),
             }
             logger.info("Stored response: task_id=%r response=%r user_id=%r", task_id, button_key, user_id)
