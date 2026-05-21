@@ -75,7 +75,7 @@ async def _get_access_token() -> str:
     return token
 
 
-async def _disable_card(response_code: str, replace_name: str) -> None:
+async def _disable_card(response_code: str, replace_name: str, user_id: str) -> None:
     """Call WeCom taskcard/update to replace the button area immediately after a click."""
     if not WECOM_CORP_SECRET or not WECOM_AGENT_ID or not response_code:
         return
@@ -86,12 +86,13 @@ async def _disable_card(response_code: str, replace_name: str) -> None:
                 "https://qyapi.weixin.qq.com/cgi-bin/message/update_template_card",
                 params={"access_token": token},
                 json={
+                    "userids": [user_id],
+                    "partyids": [],
+                    "tagids": [],
+                    "atall": 0,
                     "agentid": WECOM_AGENT_ID,
                     "response_code": response_code,
-                    "template_card": {
-                        "card_type": "button_interaction",
-                        "replace_name": replace_name,
-                    },
+                    "button": {"replace_name": replace_name},
                 },
             )
         r.raise_for_status()
@@ -214,7 +215,7 @@ async def wecom_event(
                 "received_at": time.time(),
             }
             logger.info("Stored response: task_id=%r response=%r user_id=%r", task_id, button_key, user_id)
-            await _disable_card(response_code, button_key)
+            await _disable_card(response_code, button_key, user_id)
         else:
             logger.warning("template_card_event received but TaskId is empty")
     else:

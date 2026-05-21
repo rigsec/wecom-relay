@@ -159,7 +159,7 @@ def test_callback_calls_disable_card_when_credentials_configured():
         patch("app._disable_card", new_callable=AsyncMock) as mock_disable,
     ):
         _post_callback(_event_xml("template_card_event", "button_interaction", "Yes1", "t", response_code="rc1"))
-        mock_disable.assert_awaited_once_with("rc1", "Yes")
+        mock_disable.assert_awaited_once_with("rc1", "Yes", "user1")
 
 
 
@@ -175,7 +175,7 @@ async def test_disable_card_calls_wecom_apis():
     app_module._token_cache = None
     with patch("app.WECOM_CORP_SECRET", "secret"), patch("app.WECOM_AGENT_ID", 42):
         from app import _disable_card
-        await _disable_card("rc1", "Yes")
+        await _disable_card("rc1", "Yes", "user1")
 
     assert respx.calls.call_count == 2
 
@@ -189,7 +189,7 @@ async def test_disable_card_uses_token_cache():
     )
     with patch("app.WECOM_CORP_SECRET", "secret"), patch("app.WECOM_AGENT_ID", 42):
         from app import _disable_card
-        await _disable_card("rc2", "No")
+        await _disable_card("rc2", "No", "user1")
 
     # gettoken should NOT have been called
     assert respx.calls.call_count == 1
@@ -200,11 +200,11 @@ async def test_disable_card_uses_token_cache():
 async def test_disable_card_noop_without_credentials():
     with patch("app.WECOM_CORP_SECRET", ""), patch("app.WECOM_AGENT_ID", 0):
         from app import _disable_card
-        await _disable_card("rc1", "Yes")  # must not raise or make HTTP calls
+        await _disable_card("rc1", "Yes", "user1")  # must not raise or make HTTP calls
 
 
 @pytest.mark.anyio
 async def test_disable_card_noop_without_response_code():
     with patch("app.WECOM_CORP_SECRET", "secret"), patch("app.WECOM_AGENT_ID", 42):
         from app import _disable_card
-        await _disable_card("", "Yes")  # empty response_code → noop
+        await _disable_card("", "Yes", "user1")  # empty response_code → noop
